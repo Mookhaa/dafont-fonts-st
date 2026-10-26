@@ -17,11 +17,11 @@ const USER_MES = '#chat .mes[is_user="true"]';
 
 // Cada "objetivo" tiene su selector de fuente y su tamaño (en % del tamaño normal de ST).
 const TARGETS = [
-    { key: 'char', label: 'Mensajes del personaje', sel: `${CHAR_MES} .mes_text`, kids: true },
-    { key: 'user', label: 'Tus mensajes', sel: `${USER_MES} .mes_text`, kids: true },
-    { key: 'charName', label: 'Nombre del personaje', sel: `${CHAR_MES} .name_text`, pseudo: true },
-    { key: 'userName', label: 'Tu nombre', sel: `${USER_MES} .name_text`, pseudo: true },
-    { key: 'ui', label: 'Toda la interfaz (menús, botones...)', sel: 'body, input, textarea, select, button, .menu_button, .drawer-content, .popup', ui: true },
+    { key: 'char', label: 'Texto de char', sel: `${CHAR_MES} .mes_text`, kids: true },
+    { key: 'user', label: 'Texto de user', sel: `${USER_MES} .mes_text`, kids: true },
+    { key: 'charName', label: 'Nombre de char', sel: `${CHAR_MES} .name_text`, pseudo: true },
+    { key: 'userName', label: 'Nombre de user', sel: `${USER_MES} .name_text`, pseudo: true },
+    { key: 'ui', label: 'Interfaz (menús y botones)', sel: 'body, input, textarea, select, button, .menu_button, .drawer-content, .popup', ui: true },
 ];
 
 const defaults = { fonts: [] };
@@ -311,7 +311,6 @@ function buildUI() {
                         <input id="stdf_url" class="text_pole" type="text" placeholder="Enlace de DaFont, catbox, o archivo .ttf/.otf/.zip">
                     </div>
                     <div class="stdf-row">
-                        <input id="stdf_name" class="text_pole" type="text" placeholder="Nombre (opcional)">
                         <div id="stdf_add_url" class="menu_button">Agregar enlace</div>
                         <div id="stdf_upload" class="menu_button">Subir archivo</div>
                         <input id="stdf_file" type="file" accept=".zip,.ttf,.otf,.woff,.woff2" multiple hidden>
@@ -350,23 +349,22 @@ function buildUI() {
 
     $('#stdf_add_url').on('click', async () => {
         try {
-            await addFromUrl(String($('#stdf_url').val()), String($('#stdf_name').val()).trim());
-            $('#stdf_url').val(''); $('#stdf_name').val('');
+            await addFromUrl(String($('#stdf_url').val()), '');
+            $('#stdf_url').val('');
             applyStyles(); renderUI();
         } catch (e) { toastr.error(e.message, 'DaFont Fonts'); }
     });
     $('#stdf_upload').on('click', () => $('#stdf_file').trigger('click'));
     $('#stdf_file').on('change', async function () {
-        const custom = String($('#stdf_name').val()).trim();
         let total = 0;
         for (const file of this.files) {
             try {
                 const bytes = new Uint8Array(await file.arrayBuffer());
-                total += await ingest(file.name, bytes, this.files.length === 1 ? custom : '');
+                total += await ingest(file.name, bytes, '');
             } catch (e) { toastr.error(`${file.name}: ${e.message}`, 'DaFont Fonts'); }
         }
         this.value = '';
-        if (total) { toastr.success(`${total} fuente(s) agregada(s).`, 'DaFont Fonts'); $('#stdf_name').val(''); }
+        if (total) { toastr.success(`${total} fuente(s) agregada(s).`, 'DaFont Fonts'); }
         applyStyles(); renderUI();
     });
 }

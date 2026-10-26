@@ -1,6 +1,7 @@
 // DaFont Fonts - extensión de SillyTavern
 // Carga fuentes de DaFont (.zip / .ttf / .otf / .woff / .woff2), las guarda en el navegador
-// (IndexedDB) y las aplica a los mensajes del personaje y/o a los tuyos con CSS.
+// (IndexedDB) y las aplica con CSS a: mensajes del personaje, tus mensajes, los nombres
+// y toda la interfaz, cada uno con su propio tamaño.
 // No modifica tus chats: solo cambia cómo se ven.
 
 import { extension_settings } from '../../../extensions.js';
@@ -9,8 +10,22 @@ import { saveSettingsDebounced } from '../../../../script.js';
 const MODULE = 'dafont_fonts';
 const DB_NAME = 'st-dafont-fonts';
 const STORE = 'fonts';
-const defaults = { fonts: [], charFont: '', userFont: '', uiFont: '' };
 const faces = new Map(); // id -> FontFace
+
+const CHAR_MES = '#chat .mes[is_user="false"]:not([is_system="true"])';
+const USER_MES = '#chat .mes[is_user="true"]';
+
+// Cada "objetivo" tiene su selector de fuente y su tamaño (en % del tamaño normal de ST).
+const TARGETS = [
+    { key: 'char', label: 'Mensajes del personaje', sel: `${CHAR_MES} .mes_text`, kids: true },
+    { key: 'user', label: 'Tus mensajes', sel: `${USER_MES} .mes_text`, kids: true },
+    { key: 'charName', label: 'Nombre del personaje', sel: `${CHAR_MES} .name_text`, pseudo: true },
+    { key: 'userName', label: 'Tu nombre', sel: `${USER_MES} .name_text`, pseudo: true },
+    { key: 'ui', label: 'Toda la interfaz (menús, botones...)', sel: 'body, input, textarea, select, button, .menu_button, .drawer-content, .popup', ui: true },
+];
+
+const defaults = { fonts: [] };
+for (const t of TARGETS) { defaults[`${t.key}Font`] = ''; defaults[`${t.key}Size`] = 100; }
 
 /* ---------- Ajustes ---------- */
 function getSettings() {
@@ -196,9 +211,7 @@ async function addFromUrl(rawUrl, customName) {
 async function removeFont(id) {
     const s = getSettings();
     s.fonts = s.fonts.filter(f => f.id !== id);
-    if (s.charFont === id) s.charFont = '';
-    if (s.userFont === id) s.userFont = '';
-    if (s.uiFont === id) s.uiFont = '';
+    for (const t of TARGETS) if (s[`${t.key}Font`] === id) s[`${t.key}Font`] = '';
     const face = faces.get(id);
     if (face) { document.fonts.delete(face); faces.delete(id); }
     try { await dbDelete(id); } catch { /* ignorar */ }
@@ -207,24 +220,30 @@ async function removeFont(id) {
     renderUI();
 }
 
-/* ---------- Aplicar a los mensajes (solo CSS, no toca el chat) ---------- */
-function rule(selector, family) {
-    const parts = ['', ' p', ' em', ' i', ' b', ' strong', ' q', ' span'];
-    return parts.map(p => `${selector}${p}`).join(',\n') + ` { font-family: "${family}", sans-serif !important; }\n`;
+/* ---------- Aplicar con CSS (no toca el chat) ---------- */
+function withKids(sel) {
+    return ['', ' p', ' em', ' i', ' b', ' strong', ' q', ' span'].map(p => `${sel}${p}`).join(',\n');
+}
+function withPseudo(sel) {
+    return `${sel}, ${sel}::after`;
 }
 function applyStyles() {
     const s = getSettings();
     let css = '';
-    const ui = s.fonts.find(f => f.id === s.uiFont);
-    if (ui) {
-        // Toda la interfaz: usa la variable de ST y fuerza los controles de formulario (sin tocar los iconos).
-        css += `:root { --mainFontFamily: "${ui.family}", sans-serif !important; }\n`;
-        css += `body, input, textarea, select, button, .menu_button, .drawer-content, .popup { font-family: "${ui.family}", sans-serif !important; }\n`;
+    for (const t of TARGETS) {
+        const font = s.fonts.find(f => f.id === s[`${t.key}Font`]);
+        const size = Number(s[`${t.key}Size`]) || 100;
+
+        if (font) {
+            if (t.ui) css += `:root { --mainFontFamily: "${font.family}", sans-serif !important; }\n`;
+            const fsel = t.kids ? withKids(t.sel) : t.pseudo ? withPseudo(t.sel) : t.sel;
+            css += `${fsel} { font-family: "${font.family}", sans-serif !important; }\n`;
+        }
+        if (size !== 100) {
+            const ssel = t.pseudo ? withPseudo(t.sel) : t.sel; // el tamaño solo en el contenedor para que no se acumule
+            css += `${ssel} { font-size: calc(var(--mainFontSize, 15px) * ${size / 100}) !important; }\n`;
+        }
     }
-    const char = s.fonts.find(f => f.id === s.charFont);
-    const user = s.fonts.find(f => f.id === s.userFont);
-    if (char) css += rule('#chat .mes[is_user="false"]:not([is_system="true"]) .mes_text', char.family);
-    if (user) css += rule('#chat .mes[is_user="true"] .mes_text', user.family);
     let el = document.getElementById('stdf-style');
     if (!el) { el = document.createElement('style'); el.id = 'stdf-style'; document.head.appendChild(el); }
     el.textContent = css;
@@ -239,9 +258,11 @@ function optionsHtml(selected) {
 
 function renderUI() {
     const s = getSettings();
-    $('#stdf_char').html(optionsHtml(s.charFont));
-    $('#stdf_user').html(optionsHtml(s.userFont));
-    $('#stdf_ui').html(optionsHtml(s.uiFont));
+    for (const t of TARGETS) {
+        $(`#stdf_font_${t.key}`).html(optionsHtml(s[`${t.key}Font`]));
+        $(`#stdf_size_${t.key}`).val(s[`${t.key}Size`]);
+    }
+    $('#stdf_count').text(s.fonts.length);
     const list = $('#stdf_list').empty();
     if (!s.fonts.length) {
         list.append('<div class="stdf-empty">Aún no has agregado fuentes.</div>');
@@ -249,7 +270,7 @@ function renderUI() {
     }
     for (const f of s.fonts) {
         const item = $(`
-            <div class="stdf-item">
+            <div class="stdf-item" data-name="${esc(f.name.toLowerCase())}">
                 <div class="stdf-preview" style="font-family:'${f.family}', sans-serif">Hola, así se ve ${esc(f.name)}</div>
                 <div class="stdf-name">${esc(f.name)}</div>
                 <i class="stdf-del fa-solid fa-trash-can" title="Eliminar"></i>
@@ -257,9 +278,25 @@ function renderUI() {
         item.find('.stdf-del').on('click', () => removeFont(f.id));
         list.append(item);
     }
+    applyFilter();
+}
+
+function applyFilter() {
+    const q = String($('#stdf_filter').val() || '').toLowerCase().trim();
+    $('#stdf_list .stdf-item').each(function () {
+        $(this).toggle(!q || String($(this).data('name')).includes(q));
+    });
 }
 
 function buildUI() {
+    const rows = TARGETS.map(t => `
+        <label>${t.label}</label>
+        <div class="stdf-row stdf-fontrow">
+            <select id="stdf_font_${t.key}" class="text_pole"></select>
+            <input id="stdf_size_${t.key}" class="text_pole stdf-size" type="number" min="50" max="250" step="5" title="Tamaño en % (100 = normal)">
+            <span class="stdf-pct">%</span>
+        </div>`).join('');
+
     const html = `
     <div class="stdf-settings">
         <div class="inline-drawer">
@@ -279,33 +316,37 @@ function buildUI() {
                         <div id="stdf_upload" class="menu_button">Subir archivo</div>
                         <input id="stdf_file" type="file" accept=".zip,.ttf,.otf,.woff,.woff2" multiple hidden>
                     </div>
-                    <div class="stdf-hint">
-                        Lo más fácil: descarga el .zip de DaFont y súbelo con "Subir archivo" (se abre solo, no hace falta catbox).
-                        También sirve un enlace directo a un archivo de fuente (ej. catbox). Las fuentes se guardan en tu navegador.
+                </div>
+                <div class="stdf-block">
+                    ${rows}
+                    <div class="stdf-hint">El número es el tamaño en % (100 = normal).</div>
+                </div>
+                <details class="stdf-details">
+                    <summary>Fuentes guardadas (<span id="stdf_count">0</span>)</summary>
+                    <div class="stdf-block">
+                        <input id="stdf_filter" class="text_pole" type="text" placeholder="Buscar fuente...">
+                        <div id="stdf_list" class="stdf-list"></div>
                     </div>
-                </div>
-                <div class="stdf-block">
-                    <label>Fuente de los mensajes del personaje</label>
-                    <select id="stdf_char" class="text_pole"></select>
-                    <label>Fuente de tus mensajes</label>
-                    <select id="stdf_user" class="text_pole"></select>
-                    <label>Fuente de toda la interfaz (menús, botones, nombres...)</label>
-                    <select id="stdf_ui" class="text_pole"></select>
-                    <div class="stdf-hint">Los mensajes usan su propia fuente si la elegiste arriba; la de la interfaz cubre todo lo demás.</div>
-                </div>
-                <div class="stdf-block">
-                    <label>Fuentes guardadas</label>
-                    <div id="stdf_list" class="stdf-list"></div>
-                </div>
+                </details>
             </div>
         </div>
     </div>`;
     $('#extensions_settings2').append(html);
 
-    $('#stdf_char').on('change', function () { getSettings().charFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
-    $('#stdf_user').on('change', function () { getSettings().userFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
-
-    $('#stdf_ui').on('change', function () { getSettings().uiFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
+    for (const t of TARGETS) {
+        $(`#stdf_font_${t.key}`).on('change', function () {
+            getSettings()[`${t.key}Font`] = String($(this).val());
+            saveSettingsDebounced(); applyStyles();
+        });
+        $(`#stdf_size_${t.key}`).on('input', function () {
+            let v = parseInt(String($(this).val()), 10);
+            if (!Number.isFinite(v)) return;
+            v = Math.min(250, Math.max(50, v));
+            getSettings()[`${t.key}Size`] = v;
+            saveSettingsDebounced(); applyStyles();
+        });
+    }
+    $('#stdf_filter').on('input', applyFilter);
 
     $('#stdf_add_url').on('click', async () => {
         try {

@@ -9,7 +9,7 @@ import { saveSettingsDebounced } from '../../../../script.js';
 const MODULE = 'dafont_fonts';
 const DB_NAME = 'st-dafont-fonts';
 const STORE = 'fonts';
-const defaults = { fonts: [], charFont: '', userFont: '' };
+const defaults = { fonts: [], charFont: '', userFont: '', uiFont: '' };
 const faces = new Map(); // id -> FontFace
 
 /* ---------- Ajustes ---------- */
@@ -198,6 +198,7 @@ async function removeFont(id) {
     s.fonts = s.fonts.filter(f => f.id !== id);
     if (s.charFont === id) s.charFont = '';
     if (s.userFont === id) s.userFont = '';
+    if (s.uiFont === id) s.uiFont = '';
     const face = faces.get(id);
     if (face) { document.fonts.delete(face); faces.delete(id); }
     try { await dbDelete(id); } catch { /* ignorar */ }
@@ -214,6 +215,12 @@ function rule(selector, family) {
 function applyStyles() {
     const s = getSettings();
     let css = '';
+    const ui = s.fonts.find(f => f.id === s.uiFont);
+    if (ui) {
+        // Toda la interfaz: usa la variable de ST y fuerza los controles de formulario (sin tocar los iconos).
+        css += `:root { --mainFontFamily: "${ui.family}", sans-serif !important; }\n`;
+        css += `body, input, textarea, select, button, .menu_button, .drawer-content, .popup { font-family: "${ui.family}", sans-serif !important; }\n`;
+    }
     const char = s.fonts.find(f => f.id === s.charFont);
     const user = s.fonts.find(f => f.id === s.userFont);
     if (char) css += rule('#chat .mes[is_user="false"]:not([is_system="true"]) .mes_text', char.family);
@@ -234,6 +241,7 @@ function renderUI() {
     const s = getSettings();
     $('#stdf_char').html(optionsHtml(s.charFont));
     $('#stdf_user').html(optionsHtml(s.userFont));
+    $('#stdf_ui').html(optionsHtml(s.uiFont));
     const list = $('#stdf_list').empty();
     if (!s.fonts.length) {
         list.append('<div class="stdf-empty">Aún no has agregado fuentes.</div>');
@@ -242,6 +250,104 @@ function renderUI() {
     for (const f of s.fonts) {
         const item = $(`
             <div class="stdf-item">
+                <div class="stdf-preview" style="font-family:'${f.family}', sans-serif">Hola, así se ve ${esc(f.name)}</div>
+                <div class="stdf-name">${esc(f.name)}</div>
+                <i class="stdf-del fa-solid fa-trash-can" title="Eliminar"></i>
+            </div>`);
+        item.find('.stdf-del').on('click', () => removeFont(f.id));
+        list.append(item);
+    }
+}
+
+function buildUI() {
+    const html = `
+    <div class="stdf-settings">
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>DaFont Fonts</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="stdf-block">
+                    <label>Agregar fuente</label>
+                    <div class="stdf-row">
+                        <input id="stdf_url" class="text_pole" type="text" placeholder="Enlace de DaFont, catbox, o archivo .ttf/.otf/.zip">
+                    </div>
+                    <div class="stdf-row">
+                        <input id="stdf_name" class="text_pole" type="text" placeholder="Nombre (opcional)">
+                        <div id="stdf_add_url" class="menu_button">Agregar enlace</div>
+                        <div id="stdf_upload" class="menu_button">Subir archivo</div>
+                        <input id="stdf_file" type="file" accept=".zip,.ttf,.otf,.woff,.woff2" multiple hidden>
+                    </div>
+                    <div class="stdf-hint">
+                        Lo más fácil: descarga el .zip de DaFont y súbelo con "Subir archivo" (se abre solo, no hace falta catbox).
+                        También sirve un enlace directo a un archivo de fuente (ej. catbox). Las fuentes se guardan en tu navegador.
+                    </div>
+                </div>
+                <div class="stdf-block">
+                    <label>Fuente de los mensajes del personaje</label>
+                    <select id="stdf_char" class="text_pole"></select>
+                    <label>Fuente de tus mensajes</label>
+                    <select id="stdf_user" class="text_pole"></select>
+                    <label>Fuente de toda la interfaz (menús, botones, nombres...)</label>
+                    <select id="stdf_ui" class="text_pole"></select>
+                    <div class="stdf-hint">Los mensajes usan su propia fuente si la elegiste arriba; la de la interfaz cubre todo lo demás.</div>
+                </div>
+                <div class="stdf-block">
+                    <label>Fuentes guardadas</label>
+                    <div id="stdf_list" class="stdf-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    $('#extensions_settings2').append(html);
+
+    $('#stdf_char').on('change', function () { getSettings().charFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
+    $('#stdf_user').on('change', function () { getSettings().userFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
+
+    $('#stdf_ui').on('change', function () { getSettings().uiFont = String($(this).val()); saveSettingsDebounced(); applyStyles(); });
+
+    $('#stdf_add_url').on('click', async () => {
+        try {
+            await addFromUrl(String($('#stdf_url').val()), String($('#stdf_name').val()).trim());
+            $('#stdf_url').val(''); $('#stdf_name').val('');
+            applyStyles(); renderUI();
+        } catch (e) { toastr.error(e.message, 'DaFont Fonts'); }
+    });
+    $('#stdf_upload').on('click', () => $('#stdf_file').trigger('click'));
+    $('#stdf_file').on('change', async function () {
+        const custom = String($('#stdf_name').val()).trim();
+        let total = 0;
+        for (const file of this.files) {
+            try {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                total += await ingest(file.name, bytes, this.files.length === 1 ? custom : '');
+            } catch (e) { toastr.error(`${file.name}: ${e.message}`, 'DaFont Fonts'); }
+        }
+        this.value = '';
+        if (total) { toastr.success(`${total} fuente(s) agregada(s).`, 'DaFont Fonts'); $('#stdf_name').val(''); }
+        applyStyles(); renderUI();
+    });
+}
+
+/* ---------- Inicio ---------- */
+async function loadSavedFonts() {
+    const s = getSettings();
+    for (const font of s.fonts) {
+        try {
+            const rec = await dbGet(font.id);
+            if (rec) await registerFace(font, rec.bytes);
+        } catch (e) { console.warn('[DaFont Fonts] No se pudo cargar', font.name, e); }
+    }
+}
+
+jQuery(async () => {
+    getSettings();
+    buildUI();
+    await loadSavedFonts();
+    applyStyles();
+    renderUI();
+});m">
                 <div class="stdf-preview" style="font-family:'${f.family}', sans-serif">Hola, así se ve ${esc(f.name)}</div>
                 <div class="stdf-name">${esc(f.name)}</div>
                 <i class="stdf-del fa-solid fa-trash-can" title="Eliminar"></i>

@@ -1,0 +1,15 @@
+.stdf-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.stdf-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.stdf-row input[type="text"] { flex: 1; min-width: 160px; }
+.stdf-hint { opacity: 0.7; font-size: 0.85em; line-height: 1.35; }
+.stdf-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.stdf-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-radius: 6px;
+    background: var(--black30a, rgba(0, 0, 0, 0.3));
+}
+.stdf-item .stdf-preview { flex: 1; font-size: 1.15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stdf-item .stdf-name { opacity: 0.6; font-size: 0.75em; }
+.stdf-item .stdf-del { cursor: pointer; opacity: 0.7; }
+.stdf-item .stdf-del:hover { opacity: 1; color: #e06666; }
+.stdf-empty { opacity: 0.6; font-style: italic; }

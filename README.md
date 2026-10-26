@@ -4,7 +4,7 @@ Usa fuentes de [DaFont](https://www.dafont.com) en SillyTavern: una para los men
 
 ## Instalación
 - Desde GitHub: pega la URL del repo en el instalador de extensiones de ST.
-- A mano: copia la carpeta `st-dafont-fonts` a `data/<tu-usuario>/extensions/` (o `public/scripts/extensions/third-party/`) y reinicia ST.
+- A mano: copia la carpeta `dafont-fonts-st` a `data/<tu-usuario>/extensions/` (o `public/scripts/extensions/third-party/`) y reinicia ST.
 
 ## Uso
 1. En DaFont descarga la fuente (te da un `.zip`).
